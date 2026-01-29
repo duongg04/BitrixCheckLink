@@ -1,0 +1,6 @@
+@BitrixChecker_HostAddress = http://localhost:5095
+
+GET {{BitrixChecker_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
