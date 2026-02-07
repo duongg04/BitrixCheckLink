@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # Dịch vụ 1: Web App C#
+  webapp:
+    build: .
+    container_name: bitrix-app
+    ports:
+      - "5000:8080"  # Bạn sẽ truy cập web qua link: http://localhost:5000
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - ASPNETCORE_ENVIRONMENT=Development
+      # QUAN TRỌNG: Ghi đè chuỗi kết nối để trỏ vào service 'db' bên dưới
+      # Server=db (tên service); Database=checked_link;
+      - ConnectionStrings__DefaultConnection=Server=db;Database=checked_link;User=root;Password=root;
+    depends_on:
+      - db
+
+  # Dịch vụ 2: MySQL Database
+  db:
+    image: mysql:8.0
+    container_name: bitrix-mysql
+    # Cấu hình để MySQL hỗ trợ tiếng Việt có dấu (UTF8) và xác thực mật khẩu kiểu cũ (để tránh lỗi code cũ)
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root  # Mật khẩu root
+      MYSQL_DATABASE: checked_link # Tự động tạo DB tên này
+    ports:
+      - "3307:3306" # Mở cổng 3307 để bạn dùng Navicat/DBeaver kết nối vào kiểm tra (tránh trùng cổng 3306 gốc của máy)
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:
