@@ -74,3 +74,45 @@ Hệ thống sử dụng MySQL trong Docker. Thông tin kết nối để xem d�
 
 ---
 
+## Tu chinh Hieu suat & Cau hinh (Advanced Configuration)
+
+Để tối ưu hóa tốc độ quét trên máy cấu hình mạnh hoặc mạng nhanh, bạn có thể thay đổi các thông số sau trong file code `Program.cs` trước khi chạy lệnh build.
+
+### 1. Tang toc do quet (So luong luong chay song song)
+File cần sửa: `Program.cs`
+Tìm đoạn: `builder.Services.AddHangfireServer`
+
+* Thông số: `options.WorkerCount = 6;`
+* Giải thích: Đây là số lượng tác vụ chạy cùng một lúc.
+* Gợi ý:
+  - Máy yếu (RAM 4GB): Để 4 hoặc 6.
+  - Máy mạnh (RAM 16GB+, CPU nhiều nhân): Có thể tăng lên 12, 20 hoặc cao hơn để quét nhanh gấp đôi/gấp ba.
+
+### 2. Cau hinh Mang & Timeout (Xu ly mang cham/nhanh)
+File cần sửa: `Program.cs`
+Tìm đoạn: `builder.Services.AddHttpClient`
+
+* Thông số: `client.Timeout = TimeSpan.FromSeconds(10);`
+  - Nếu mạng của bạn rất chậm hoặc chập chờn: Hãy tăng lên 20 hoặc 30 giây để tránh bị báo lỗi "Time out" sai.
+  - Nếu mạng cáp quang xịn: Giữ nguyên 10s hoặc giảm xuống 5s để bỏ qua nhanh các link chết.
+
+* Thông số: `MaxConnectionsPerServer = 1000;`
+  - Đây là số lượng kết nối tối đa mở ra cùng lúc. Nếu tăng `WorkerCount` lên cao (ví dụ 50), bạn nên kiểm tra xem số này có đủ lớn không (thường 1000 là dư sức).
+
+### 3. Cau hinh Database (Ket noi MySQL)
+File cần sửa: `Program.cs`
+Tìm đoạn: `var connectionStringWithPool`
+
+* Thông số: `Max Pool Size=100;`
+  - Nếu bạn tăng `WorkerCount` lên rất cao (trên 50), hãy tăng số này lên tương ứng (ví dụ 200) để tránh lỗi Database bị quá tải kết nối.
+
+### 4. Thay doi Port (Neu bi trung cong)
+File cần sửa: `docker-compose.yml`
+
+* Dịch vụ Web:
+  `ports: - "5000:8080"` -> Đổi số 5000 thành số khác (ví dụ 8000) nếu máy bạn đã cài phần mềm khác dùng cổng 5000.
+* Dịch vụ MySQL:
+  `ports: - "3307:3306"` -> Đổi số 3307 thành số khác nếu cần.
+
+Lưu ý: Sau khi sửa bất kỳ thông số nào trong code, bạn BẮT BUỘC phải chạy lại lệnh sau để áp dụng thay đổi:
+docker-compose up -d --build
