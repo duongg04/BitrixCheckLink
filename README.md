@@ -25,8 +25,8 @@ Bạn KHÔNG CẦN cài đặt .NET, MySQL hay Visual Studio. Bạn chỉ cần:
 
 ### Buoc 1: Tai du an ve may
 Mở Terminal và chạy lệnh:
-git clone https://gitlab.com/username-cua-ban/bitrix-checker.git
-cd bitrix-checker
+git clone https://github.com/duongg04/BitrixCheckLink.git
+cd BitrixCheckLink
 
 ### Buoc 2: Chay ung dung
 Chạy lệnh sau để tự động cài đặt và khởi động server:
