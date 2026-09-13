@@ -23,7 +23,7 @@ namespace BitrixChecker.Migrations
                 .HasAnnotation("ProductVersion", "9.0.0")
                 .HasAnnotation("Relational:MaxIdentifierLength", 64);
 
-            MySqlModelBuilderExtensions.AutoIncrementColumns(modelBuilder);
+            // Identity columns are handled by provider-specific extensions.
 
             modelBuilder.Entity("BitrixChecker.Models.CheckedLink", b =>
                 {

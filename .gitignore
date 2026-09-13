@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+**/*.db
+**/active_found.txt
+**/scan_state.json
+.env
+appsettings.Local.json

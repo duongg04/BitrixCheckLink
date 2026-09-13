@@ -1,118 +1,196 @@
-# Bitrix24 Checker Tool
+# BitrixChecker
 
-Công cụ tự động quét và kiểm tra trạng thái hoạt động của các tên miền con (subdomain) Bitrix24 bằng phương pháp vét cạn (Brute-force). Hệ thống chạy trên Docker, đảm bảo tính nhất quán và dễ dàng triển khai.
+Ứng dụng nội bộ kiểm tra và quản lý các instance Bitrix24. Backend dùng ASP.NET Core 8, MySQL 8, ASP.NET Identity, JWT và Hangfire.
 
-Tech Stack: .NET 9.0 | Docker | MySQL 8.0 | Hangfire
+## Kiến trúc chương trình
 
-## Tinh nang chinh
+Dự án được chia thành 4 giai đoạn phát triễn:
 
-* Quét Vét Cạn: Tạo và kiểm tra hàng loạt subdomain theo độ dài tùy chọn.
-* Xử lý Đa luồng: Sử dụng Hangfire để chạy nền hiệu suất cao.
-* Lưu trữ: Kết quả (link sống/chết) được lưu tự động vào Database MySQL.
-* Dễ dàng triển khai: Chỉ cần 1 lệnh duy nhất với Docker.
+| Giai đoạn | Nội dung | Trạng thái |
+|---|---|---|
+| **Giai đoạn 1** | Nền tảng: Domain models (User, ScanJob, LinkResult, LinkProcessing, AuditLog), Authentication/Authorization, Swagger, cấu hình môi trường | ✅ Hoàn thành |
+| **Giai đoạn 2** | Engine quét thông minh: SubdomainGenerator, LinkDetector, LinkResultSaver, 4 Hangfire job | ✅ Hoàn thành |
+| **Giai đoạn 3** | Quản lý dữ liệu & workflow Sales: 3 nhóm link (Active/Inactive/Processed), filter/search/sort, export CSV, lịch sử thay đổi | ✅ Hoàn thành |
+| **Giai đoạn 4** | Re-check định kỳ, thông báo, logging, bảo mật production, unit tests | ✅ Hoàn thành |
 
----
+## Cấu trúc thư mục
 
-## Yeu cau cai dat (Prerequisites)
+```
+BitrixChecker/
+├── Configuration/         # ScanOptions, JwtOptions, SeedAdminOptions
+├── Controllers/
+│   ├── AuthController.cs     # Đăng nhập, lấy token
+│   ├── ScanController.cs      # API kích hoạt scan (Admin)
+│   ├── LinkController.cs      # Quản lý link & workflow Sales
+├── Data/
+│   ├── AppDbContext.cs        # DbContext + config EF
+│   └── Migrations/            # Migration files
+├── Models/
+│   ├── ApplicationUser.cs     # User (Identity) + DisplayName
+│   ├── ScanJob.cs             # Tracking job
+│   ├── LinkResult.cs          # Kết quả scan (map với bảng CheckedLinks)
+│   ├── LinkProcessing.cs      # Workflow Sales
+│   ├── ProcessingHistory.cs   # Lịch sử thay đổi
+│   ├── AuditLog.cs            # Audit log
+│   └── LinkStatuses.cs        # Hằng số ACTIVE/INACTIVE
+├── Services/
+│   ├── BitrixService.cs
+│   ├── IdentitySeedService.cs
+│   └── ScanEngine/
+│       ├── SubdomainGenerator     # Sinh candidate
+│       ├── LinkDetector           # HTTP detect active
+│       ├── LinkResultSaver        # Lưu kết quả
+│       ├── NotificationService    # Thông báo
+│       ├── ScanJobService         # Tracking DB
+│       └── ScanJobs               # 4 Hangfire job
+├── wwwroot/                  # Static files (login.html)
+├── .env.example              # Template env vars
+├── appsettings*.json
+├── Dockerfile + docker-compose.yml
+└── BitrixChecker.csproj
 
-Bạn KHÔNG CẦN cài đặt .NET, MySQL hay Visual Studio. Bạn chỉ cần:
-1. Docker Desktop (Đã cài và đang chạy).
-2. Git (Để tải code về).
+BitrixChecker.Tests/        # Unit tests (35 tests)
+```
 
----
+## Domain Models
 
-## Huong dan chay (Quick Start)
+### LinkResult → bảng `CheckedLinks`
+| Field | Type | Mô tả |
+|---|---|---|
+| Id | int | Primary key |
+| Subdomain | string(100) | Tên subdomain (unique) |
+| FullUrl | string(2048) | URL đầy đủ |
+| Status | string(20) | "ACTIVE" hoặc "INACTIVE" |
+| HttpCode | int? | HTTP status code |
+| CreatedAt/LastChecked | DateTime | Timestamp |
+| ResponseFingerprint | string(2000) | Nội dung response |
+| IsDeleted | bool | Soft delete |
 
-### Buoc 1: Tai du an ve may
-Mở Terminal và chạy lệnh:
-git clone https://github.com/duongg04/BitrixCheckLink.git
-cd BitrixCheckLink
+### LinkProcessing (workflow Sales)
+| Field | Type | Mô tả |
+|---|---|---|
+| LinkResultId | int | FK → LinkResult |
+| AssignedUserId | string | Người phụ trách |
+| Note | string(1000) | Ghi chú |
+| Status | string | New/Contacted/Negotiating/Successful/Failed/NotPotential |
+| UpdatedAt | DateTime | Cập nhật lúc |
+| UpdatedByUserId | string | Người cập nhật |
 
-### Buoc 2: Chay ung dung
-Chạy lệnh sau để tự động cài đặt và khởi động server:
-docker-compose up -d --build
+### ProcessingHistory
+Lưu lịch sử mọi thay đổi của LinkProcessing (status, note, assignee).
 
-### Buoc 3: Truy cap
-Sau khoảng 1-2 phút, bạn có thể truy cập:
-* Trang chủ (Web Scan): http://localhost:5000
-* Trang quản lý tiến độ (Hangfire): http://localhost:5000/hangfire
+### ScanJob
+| Field | Type | Mô tả |
+|---|---|---|
+| Name/JobType | string | Tên + loại job |
+| Status | string | Pending/Running/Completed/Failed |
+| TotalExpected/TotalScanned | int | Số lượng |
+| CreatedAt/StartedAt/CompletedAt | DateTime | Thời gian |
 
----
+## Phân quyền
 
-## Quan ly Database (MySQL)
+| Vai trò | Quyền |
+| --- | --- |
+| **Admin** | Tạo user, khởi động scan, xem toàn bộ danh sách/thống kê, quản lý xử lý Sales, archive link, export CSV, truy cập Hangfire dashboard |
+| **User** | Đăng nhập, chỉ xem link `ACTIVE`, cập nhật ghi chú xử lý cho link active |
 
-Hệ thống sử dụng MySQL trong Docker. Thông tin kết nối để xem dữ liệu:
-* Host: localhost
-* Port: 3307
-* Username: root
-* Password: root
-* Database: checked_link
+Mọi API, ngoại trừ đăng nhập và health check, đều yêu cầu JWT. API đăng nhập giới hạn 10 lần/phút/IP; ASP.NET Identity khóa tài khoản 15 phút sau 5 lần đăng nhập sai.
 
-(Gợi ý: Dùng DBeaver, HeidiSQL hoặc Extension Database Client trong VS Code để kết nối).
+## API Endpoints
 
----
+### Auth
+- `POST /api/auth/login` — đăng nhập, nhận JWT
 
-## Cau truc Project
+### Scan (Admin)
+- `POST /api/scan/generate` — khởi động scan với cấu hình (min/max length, wordlist, parallelism, retry)
 
-* Dockerfile: Cấu hình môi trường chạy Web App (.NET 9).
-* docker-compose.yml: Cấu hình tổ chức dịch vụ (Web + MySQL).
-* Program.cs: Code khởi chạy ứng dụng.
-* Services/: Chứa logic xử lý.
+### Link (Admin/User)
+- `GET /api/link/stats` — thống kê (Admin: full, User: ACTIVE only)
+- `GET /api/link/list` — danh sách links (có filter/search/sort/pagination)
+  - Params: `status` (ALL/ACTIVE/INACTIVE/PROCESSED), `search`, `assigneeId`, `sortBy`, `sortDir`, `dateFrom`, `dateTo`, `page`
+- `GET /api/link/processed` — danh sách links đã qua Sales team xử lý
+- `GET /api/link/processing-history/{id}` — lịch sử thay đổi của một link
+- `PUT /api/link/processing/{id}/note` — cập nhật ghi chú (Admin/User)
+- `PUT /api/link/processing/{id}` — cập nhật status + assignee (Admin)
+- `POST /api/link/pause?pause=true` — tạm dừng hệ thống (Admin)
+- `DELETE /api/link/inactive` — xóa links inactive (Admin)
+- `GET /api/link/export` — export CSV (Admin)
 
----
+### Other
+- `/swagger` — API docs (Bearer JWT)
+- `/hangfire` — Hangfire dashboard (Admin only)
+- `GET /health` — `200 OK { status: "healthy" }`
 
-## Cac loi thuong gap (Troubleshooting)
+## Quy trình Scan Engine (4 Hangfire job)
 
-1. Lỗi "Ports are not available":
-   Tắt các phần mềm đang chiếm cổng 5000 hoặc 3307, hoặc đổi cổng trong file docker-compose.yml.
+1. **GenerateScanJob** — sinh candidate subdomains (random + wordlist), tạo ScanJob record, enqueue CheckBatchJob
+2. **CheckBatchJob** — kiểm tra HTTP, lưu active links, enqueue NotificationJob
+3. **RecheckJob** — cron hàng ngày 2h sáng UTC, re-check active links, chuyển INACTIVE + thông báo
+4. **NotificationJob** — log thông báo khi phát hiện link mới hoặc link mất
 
-2. Web App báo lỗi kết nối Database khi khởi động:
-   Hệ thống sẽ tự thử lại (Retry), chỉ cần đợi 10-20 giây.
+## Cấu hình
 
-3. Lỗi 401 khi vào Hangfire:
-   Đã được xử lý sẵn trong code (AllowAllAuthorizationFilter).
+### appsettings.json
+```json
+{
+  "Scan": {
+    "TargetBaseDomain": "bitrix24.vn",
+    "MinLength": 5,
+    "MaxLength": 15,
+    "WordlistPath": "",
+    "UseWordlist": false,
+    "RetryCount": 2,
+    "RetryDelayMs": 1500,
+    "Parallelism": 20,
+    "BatchSize": 500,
+    "MaxCandidates": 100000,
+    "WorkerCount": 6,
+    "RecheckCron": "0 2 * * *"
+  }
+}
+```
 
----
+### Biến môi trường bắt buộc
+| Biến | Mô tả |
+|---|---|
+| `ConnectionStrings__DefaultConnection` | MySQL connection string |
+| `Jwt__Key` | Secret key (≥32 ký tự) |
+| `Jwt__Issuer` / `Jwt__Audience` | JWT issuer/audience |
+| `SeedAdmin__UserName` / `SeedAdmin__Email` / `SeedAdmin__Password` | Admin seed (≥12 ký tự, có hoa/thường/số/đặc biệt) |
 
-## Tu chinh Hieu suat & Cau hinh (Advanced Configuration)
+## Chạy Dự án
 
-Để tối ưu hóa tốc độ quét trên máy cấu hình mạnh hoặc mạng nhanh, bạn có thể thay đổi các thông số sau trong file code `Program.cs` trước khi chạy lệnh build.
+### Docker
+```bash
+cp BitrixChecker/.env.example BitrixChecker/.env
+# Edit .env with real secrets
+cd BitrixChecker && docker compose --env-file .env up --build -d
+```
+Truy cập: `http://localhost:5000/swagger`, `http://localhost:5000/health`
 
-### 1. Tang toc do quet (So luong luong chay song song)
-File cần sửa: `Program.cs`
-Tìm đoạn: `builder.Services.AddHangfireServer`
+### Local
+```powershell
+$env:ConnectionStrings__DefaultConnection = 'Server=localhost;Database=bitrix_checker;User=root;Password=yourpass'
+$env:Jwt__Key = 'your-32-char-secret-key'
+# ... thiết lập biến môi trường khác
+dotnet run --project BitrixChecker
+```
 
-* Thông số: `options.WorkerCount = 6;`
-* Giải thích: Đây là số lượng tác vụ chạy cùng một lúc.
-* Gợi ý:
-  - Máy yếu (RAM 4GB): Để 4 hoặc 6.
-  - Máy mạnh (RAM 16GB+, CPU nhiều nhân): Có thể tăng lên 12, 20 hoặc cao hơn để quét nhanh gấp đôi/gấp ba.
+## Bảo mật
 
-### 2. Cau hinh Mang & Timeout (Xu ly mang cham/nhanh)
-File cần sửa: `Program.cs`
-Tìm đoạn: `builder.Services.AddHttpClient`
+- Security headers: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Permissions-Policy
+- CORS: chỉ `https://bitrix24.vn` được phép
+- Rate limiting: 10 req/phút/IP cho auth endpoint
+- HTTPS bắt buộc ở Production
+- Không có secret hay mật khẩu mặc định trong code
 
-* Thông số: `client.Timeout = TimeSpan.FromSeconds(10);`
-  - Nếu mạng của bạn rất chậm hoặc chập chờn: Hãy tăng lên 20 hoặc 30 giây để tránh bị báo lỗi "Time out" sai.
-  - Nếu mạng cáp quang xịn: Giữ nguyên 10s hoặc giảm xuống 5s để bỏ qua nhanh các link chết.
+## Logging
 
-* Thông số: `MaxConnectionsPerServer = 1000;`
-  - Đây là số lượng kết nối tối đa mở ra cùng lúc. Nếu tăng `WorkerCount` lên cao (ví dụ 50), bạn nên kiểm tra xem số này có đủ lớn không (thường 1000 là dư sức).
+Console logging với structured logs. Filter: `Microsoft=Warning`, `BitrixChecker=Information`.
 
-### 3. Cau hinh Database (Ket noi MySQL)
-File cần sửa: `Program.cs`
-Tìm đoạn: `var connectionStringWithPool`
+## Test
 
-* Thông số: `Max Pool Size=100;`
-  - Nếu bạn tăng `WorkerCount` lên rất cao (trên 50), hãy tăng số này lên tương ứng (ví dụ 200) để tránh lỗi Database bị quá tải kết nối.
-
-### 4. Thay doi Port (Neu bi trung cong)
-File cần sửa: `docker-compose.yml`
-
-* Dịch vụ Web:
-  `ports: - "5000:8080"` -> Đổi số 5000 thành số khác (ví dụ 8000) nếu máy bạn đã cài phần mềm khác dùng cổng 5000.
-* Dịch vụ MySQL:
-  `ports: - "3307:3306"` -> Đổi số 3307 thành số khác nếu cần.
-
-Lưu ý: Sau khi sửa bất kỳ thông số nào trong code, bạn BẮT BUỘC phải chạy lại lệnh sau để áp dụng thay đổi:
-docker-compose up -d --build
+```powershell
+dotnet test
+```
+35 unit tests: ProcessingStatuses, LinkResult defaults, ProcessingHistory, SubdomainGenerator, ScanOptions validation, LinkDetector rules (302/200/404/registration), status transitions, ScanEngineState pause/resume, audit log properties, request DTO mapping.

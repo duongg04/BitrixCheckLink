@@ -1,16 +1,15 @@
-# 1. Dùng Image SDK .NET 9.0 để build
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+# 1. Build stage using the .NET 8.0 SDK
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
 
-# 2. Copy toàn bộ code vào Docker
+# 2. Copy source and publish
 COPY . .
 
-# 3. Tải các thư viện và Build
 RUN dotnet restore
 RUN dotnet publish -c Release -o out
 
-# 4. Dùng Image Runtime .NET 9.0 để chạy ứng dụng
-FROM mcr.microsoft.com/dotnet/aspnet:9.0
+# 3. Runtime stage using the .NET 8.0 ASP.NET runtime
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /app/out .
 

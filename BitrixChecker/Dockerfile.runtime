@@ -1,0 +1,7 @@
+# Temporary helper image built from the LOCALLY-PUBLISHED output.
+# Workaround for environments where in-container `dotnet restore` cannot run.
+# Mirrors the runtime stage of the production Dockerfile.
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY obj/publish-release/ ./
+ENTRYPOINT ["dotnet", "BitrixChecker.dll"]
